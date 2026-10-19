@@ -76,7 +76,7 @@ describe('bootstrap', () => {
 
     expect(builder.setTitle).toHaveBeenCalledWith('Chatvardage Rooms Service');
     expect(builder.setDescription).toHaveBeenCalled();
-    expect(builder.setVersion).toHaveBeenCalledWith('1.0.0');
+    expect(builder.setVersion).toHaveBeenCalledWith('1.1.0');
     expect(builder.addBearerAuth).toHaveBeenCalledWith({
       type: 'http',
       scheme: 'bearer',
