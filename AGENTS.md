@@ -246,3 +246,9 @@ Infra est la référence du démarrage complet, des architectures, contrats et s
 - **Un décalage au-delà du total** (membres, serveurs) renvoie une page vide sans requête `SKIP` ; pas de plafond arbitraire qui empêcherait de parcourir un grand serveur.
 - **`apk upgrade` dans l'image** : il applique volontairement les correctifs disponibles ; image de base identifiée par digest.
 - **Course sur le quota de serveurs possédés** entre créations et transferts simultanés : limite connue, sans contournement des droits. Une garantie stricte demanderait un verrou commun à toutes les créations et tous les transferts.
+
+- **Jeton interne** : comparer les longueurs avant `timingSafeEqual`, qui exige des buffers de même taille ; une longueur différente doit donner 401, pas une exception de comparaison.
+- **Serveur par défaut sans propriétaire** : `ownerId` est nul pour ce serveur commun ; la création des autres serveurs renseigne leur propriétaire.
+- **`SALON_GENERAL_ID` retiré des exports** : aucun appelant ne l'utilisait dans ce dépôt. Les identifiants en base et dans les autres services restent inchangés ; supprimer un export TypeScript ne modifie pas une migration.
+- **Version Swagger explicite** : elle décrit le contrat publié et est vérifiée par `main.spec.ts`. La modifier avec les métadonnées de publication évite de charger le package npm au démarrage ou de modifier les chemins de compilation pour une simple métadonnée.
+- **Revues GitHub** : configuration, secrets et rotation sont décrits dans le [guide Infra](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/main/docs/revues-github.md). Les recopier dans les commentaires du workflow créerait une seconde procédure à maintenir.
