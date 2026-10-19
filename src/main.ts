@@ -72,13 +72,11 @@ export function resolveCorsOrigins(): string[] {
 }
 
 async function bootstrap() {
-  // Avant tout : pas de démarrage en production avec des secrets de dev.
   verifierSecretsProduction({
     jetonInterne: true,
     urlsAvecMotDePasse: ['DATABASE_URL'],
   });
   const app = await NestFactory.create(AppModule);
-  // SIGTERM (docker stop) : fermeture propre (connexions Prisma).
   app.enableShutdownHooks();
 
   app.setGlobalPrefix('api');

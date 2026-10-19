@@ -10,12 +10,6 @@ import { requireUser } from '../auth/request-user';
 import { PageQueryDto } from './dto/member.dto';
 import { ServersService } from './servers.service';
 
-/**
- * Routes du panneau d'administration (Dashboard). Les anciennes routes de
- * transition (`GET /api/admin/rooms`, `DELETE /api/rooms/:id`) ont été
- * retirées : utiliser `GET /api/admin/servers`, puis `GET /api/servers/:id`
- * et `/members`, et `DELETE /api/channels/:id`.
- */
 @ApiTags('Administration')
 @ApiBearerAuth()
 @Controller('admin')

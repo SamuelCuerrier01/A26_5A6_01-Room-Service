@@ -39,7 +39,6 @@ jest.mock('@nestjs/swagger', () => ({
   ApiPropertyOptional: decorator,
 }));
 
-// main.ts lance bootstrap à l'import; NestFactory est mocké avant les imports dynamiques.
 describe('bootstrap', () => {
   const originalNodeEnv = process.env.NODE_ENV;
 

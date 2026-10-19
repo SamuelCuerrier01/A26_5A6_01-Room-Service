@@ -138,7 +138,6 @@ describe('EvenementsService', () => {
       (_, i) => `r${i}`,
     );
     await expect(service.purgerSalons(ids, [0, 0])).resolves.toBeUndefined();
-    // Premier lot : 3 échecs (abandon journalisé) ; second lot : réussi.
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(erreur).toHaveBeenCalledTimes(1);
   });
