@@ -28,6 +28,7 @@ jobs:
       - run: npm audit --audit-level=high
       - run: npx prisma generate
       - run: npm run lint
+      - run: npm run format:check
       - run: npm run build
       - run: npm run test:cov
       - run: npm run test:e2e

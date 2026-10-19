@@ -111,6 +111,7 @@ Puis exécuter au minimum :
 ```bash
 npm audit --audit-level=high
 npm run lint
+npm run format:check
 npm test
 npm run test:e2e
 npm run build
@@ -225,6 +226,7 @@ Vérifier :
 Dans la description de PR, résumer les changements, indiquer les tests exécutés et signaler tout impact sur les autres dépôts.
 
 ## Couverture obligatoire
+
 - `npm run test:cov` doit terminer avec 100 % Statements, Branches, Functions et Lines.
 - Le seuil Jest global est fixé à 100 % : toute baisse fait échouer la commande.
 - Toute nouvelle branche de logique doit être accompagnée de tests couvrant succès, refus et erreurs.
