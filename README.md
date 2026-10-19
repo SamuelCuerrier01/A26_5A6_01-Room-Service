@@ -4,7 +4,7 @@ Microservice NestJS/Prisma propriétaire des serveurs, salons, membres et invita
 
 ## Lancer le service complet
 
-Le [README Infra](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/main/README.md) est le point de départ : clonage des huit dépôts, secrets, Docker Compose, administration et client desktop.
+Le [README Infra](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/main/README.md) est le point de départ : clonage des dépôts, secrets, Docker Compose, administration et clients.
 
 Depuis le dépôt Infra :
 
@@ -13,24 +13,22 @@ docker compose up --build -d
 ./scripts/healthcheck.sh
 ```
 
-Préparer auparavant `.env` selon Infra. Le healthcheck vérifie PostgreSQL, les quatre bases, Redis, les six services dont Dashboard, puis les dépendances du Gateway. `--infra` limite le diagnostic à PostgreSQL et Redis.
+Le `.env` d'Infra est généré au premier démarrage. Le healthcheck vérifie PostgreSQL, les quatre bases, Redis, les services (Dashboard compris), puis les dépendances du Gateway ; `--infra` se limite à PostgreSQL et Redis.
 
 ## Développer ce dépôt seul
 
 Prérequis : Docker Compose v2; hors Docker, Node 22 et PostgreSQL; Authentification accessible pour les routes protégées.
 
 ```bash
-git clone https://github.com/Chatvardage/A26_5A6_01-Room-Service.git
-cd A26_5A6_01-Room-Service
 cp .env.example .env
 docker compose -f compose.local.yml up --build
 ```
 
-Le Compose individuel attend Authentification sur l’hôte; Message-Service attend aussi Room-Service. Pour une installation autonome complète, utiliser Infra.
+Le Compose individuel attend Authentification sur l’hôte. Pour une installation complète, utiliser Infra.
 
-Service local : `http://localhost:3003`. Santé : `GET /api/health`. Les Compose individuels utilisent des ports communs à Infra : choisir un seul environnement à la fois.
+Service local : `http://localhost:3003`. Santé : `GET /api/health`. Swagger : `http://localhost:3003/docs`. Les Compose individuels utilisent des ports communs à Infra : choisir un seul environnement à la fois.
 
-La configuration complète, les routes, les exemples et les procédures Node/Rust sont dans le [guide du service dans Infra](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/main/docs/services/Room-Service.md). Les valeurs de `.env.example` sont réservées au développement.
+La configuration, les routes, les permissions et les exemples sont dans le [guide du service dans Infra](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/main/docs/services/Room-Service.md). Les valeurs de `.env.example` sont réservées au développement.
 
 ## Vérifications
 
@@ -39,13 +37,14 @@ npm ci
 npm audit --audit-level=high
 npx prisma generate
 npm run lint
+npm run format:check
 npm test -- --runInBand
 npm run test:cov -- --runInBand
 npm run test:e2e -- --runInBand
 npm run build
 ```
 
-Les migrations appartiennent à ce dépôt (`prisma/` lorsqu’applicable); Infra crée uniquement les bases et les comptes SQL. Consulter [AGENTS.md](AGENTS.md) pour les règles et vérifications supplémentaires.
+Les migrations appartiennent à ce dépôt (`prisma/migrations`) ; Infra crée uniquement les bases et les comptes SQL. Consulter [AGENTS.md](AGENTS.md) pour les règles et vérifications supplémentaires.
 
 ## Documentation
 
@@ -54,10 +53,9 @@ Les migrations appartiennent à ce dépôt (`prisma/` lorsqu’applicable); Infr
 - [Scénario de validation](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/main/docs/validation.md)
 - [Versions et publication](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/main/docs/versions.md)
 
-## Renforcement sécurité — 9 octobre 2026
+## Sécurité et limites
 
-Une vérification Auth explicitement fraîche invalide aussi la requête en cours. Une réponse antérieure ne peut ni remplir à nouveau le cache ni effacer la nouvelle requête. Cette logique et ses tests sont identiques à Message-Service.
-
-Les dépendances compatibles sont mises à jour; l'override YAML concerne seulement `@istanbuljs/load-nyc-config`. npm/npx sont retirés de l'image finale : la migration utilise le CLI Prisma déjà installé (`./node_modules/.bin/prisma migrate deploy`). Voir le rapport global dans [rapport initial Infra](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/develop/docs/audit-securite-2026-10-09.md).
-
-La pagination des membres et serveurs retourne une page vide sans lancer de requête SKIP lorsque le décalage dépasse le total réel, afin d’éviter un parcours inutile. Le quota de serveurs possédés reste susceptible d’une course entre créations/transferts simultanés; les permissions de propriété demeurent vérifiées.
+- Le jeton est validé par Authentification (`src/partage/client-auth.ts`, identique dans Message-Service) ; une vérification explicitement fraîche invalide la requête en cours, pour qu'une réponse antérieure à une révocation ne remplisse pas le cache.
+- L'image finale ne contient ni npm ni npx : les migrations sont appliquées par `./node_modules/.bin/prisma migrate deploy`. Rapport d'audit : [Infra](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/develop/docs/audit-securite-2026-10-09.md).
+- Pagination des membres et des serveurs : un décalage au-delà du total renvoie une page vide sans requête `SKIP`.
+- Le quota de serveurs possédés peut être dépassé par des créations ou transferts strictement simultanés ; les droits de propriété restent vérifiés.

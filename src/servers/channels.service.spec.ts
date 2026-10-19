@@ -44,7 +44,6 @@ const serveur = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-/** Salon chargé avec SEULEMENT la ligne ServerMember de l'utilisateur visé. */
 const salonAvec = (
   qui: ReturnType<typeof membre> | null,
   overrides: Record<string, unknown> = {},
@@ -241,7 +240,6 @@ describe('ChannelsService', () => {
         where: { id: 'salon-1' },
       });
       expect(evenements.notifier).toHaveBeenCalledWith('srv-1', 'salons');
-      // Ses messages, dans Message-Service.
       expect(evenements.salonsSupprimes).toHaveBeenCalledWith(['salon-1']);
     });
   });
@@ -355,7 +353,6 @@ describe('ChannelsService', () => {
           [{ role: 'moderateur', joinedAt: arrivee }],
           [{ id: 'reserve', access: 'moderateurs' }],
         ),
-        // Serveur par défaut pas encore rejoint : lisible, sans date.
         srv('defaut', [], [{ id: 'general', access: 'tous' }], {
           ownerId: null,
           isDefault: true,

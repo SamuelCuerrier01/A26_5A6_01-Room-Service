@@ -13,10 +13,8 @@ import {
   Min,
 } from 'class-validator';
 
-/** Taille de page par défaut et maximale de la liste des membres. */
 export const LIMITE_MEMBRES_DEFAUT = 50;
 export const LIMITE_MEMBRES_MAX = 100;
-/** Taille de page par défaut de la découverte des serveurs publics. */
 export const LIMITE_DECOUVERTE_DEFAUT = 10;
 
 export class InviteMemberDto {
@@ -27,7 +25,6 @@ export class InviteMemberDto {
   utilisateurId!: string;
 }
 
-/** Expulsion du propriétaire : le membre qui devient propriétaire. */
 export class KickMemberQueryDto {
   @ApiPropertyOptional({ example: 'user-2' })
   @IsOptional()
@@ -75,7 +72,6 @@ export class DiscoverServersQueryDto {
   q?: string;
 }
 
-/** Pagination de la liste admin des serveurs (même bornes que les membres). */
 export class PageQueryDto {
   @ApiPropertyOptional({ default: 0 })
   @IsOptional()

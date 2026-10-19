@@ -1,6 +1,6 @@
 # AGENTS.md — Chatvardage Room Service
 
-Ce fichier contient les règles de travail pour tout agent IA ou développeur qui modifie ce dépôt.
+Règles de travail pour toute personne ou tout agent qui modifie ce dépôt.
 
 ## Contexte du projet
 
@@ -8,16 +8,17 @@ Ce dépôt est le **Room-Service** de Chatvardage.
 
 Architecture d'équipe :
 
-- `Frontend` : Electron et ChatGateway réel.
+- `Frontend` : client Electron.
+- `Mobile` : application Expo (React Native).
 - `Serveur-API` : API Gateway / point d'entrée unique.
 - `Authentification` : utilisateurs, authentification et rôles.
 - `Room-Service` : serveurs (façon Discord), leurs membres, rôles et salons.
-- `Message-Service` : messages privés, historique et temps réel.
+- `Message-Service` : messages privés et de salon, historique et temps réel.
 - `User-Config-Service` : alias, thème et préférences.
 - `Dashboard` : panneau d'administration / AdminJS.
 - `Infra` : Docker Compose, PostgreSQL, Redis et orchestration globale.
 
-Le Room-Service ne doit **pas** prendre en charge les messages privés, Redis, le WebSocket, les configurations utilisateur ou l'authentification. Les messages de groupe sont reportés à un contrôle ultérieur.
+Le Room-Service ne doit **pas** prendre en charge les messages (privés ou de salon), Redis, le WebSocket, les configurations utilisateur ou l'authentification.
 
 ## Stack
 
@@ -110,6 +111,7 @@ Puis exécuter au minimum :
 ```bash
 npm audit --audit-level=high
 npm run lint
+npm run format:check
 npm test
 npm run test:e2e
 npm run build
@@ -158,6 +160,7 @@ Les tests E2E doivent refléter les routes actuelles du Room-Service et ne doive
 - Valider les entrées avec les DTO et `class-validator`.
 - Retourner des erreurs HTTP NestJS explicites (`BadRequestException`, `ForbiddenException`, `NotFoundException`, etc.).
 - Ne pas laisser de code généré, mort ou de dépendances inutilisées.
+- Pas de commentaires dans le code : les explications vont dans le README, le guide du service d'Infra ou ce fichier. Seules restent les directives d'outils.
 
 ## Fichiers partagés (`src/partage/`)
 
@@ -190,7 +193,7 @@ curl http://localhost:3003/api/health
 
 Le `compose.local.yml` sert au développement autonome. L'environnement final est orchestré par le dépôt `Infra`.
 
-Ne pas ajouter Redis au Room-Service : Redis/WebSocket appartient au flux temps réel des messages privés dans `Message-Service`.
+Ne pas ajouter Redis au Room-Service : Redis/WebSocket appartient au flux temps réel de `Message-Service`, que Room-Service prévient des changements de serveur par HTTP interne.
 
 ## Documentation
 
@@ -223,6 +226,7 @@ Vérifier :
 Dans la description de PR, résumer les changements, indiquer les tests exécutés et signaler tout impact sur les autres dépôts.
 
 ## Couverture obligatoire
+
 - `npm run test:cov` doit terminer avec 100 % Statements, Branches, Functions et Lines.
 - Le seuil Jest global est fixé à 100 % : toute baisse fait échouer la commande.
 - Toute nouvelle branche de logique doit être accompagnée de tests couvrant succès, refus et erreurs.
@@ -232,26 +236,19 @@ Dans la description de PR, résumer les changements, indiquer les tests exécut�
 
 Infra est la référence du démarrage complet, des architectures, contrats et scénarios de validation. Le README local décrit le dépôt et ses commandes; les guides détaillés sont dans `A26_5A6_01-Infra/docs/`. Toute modification de contrat doit mettre à jour la référence centrale et ses liens.
 
-## Revue PR #9 — décisions du 6 octobre 2026
+## Choix délibérés (ne pas « corriger »)
 
-- Liste admin non bornée : pas de take arbitraire; le contrat exige tous les salons lisibles pour les compteurs et la recherche. Tronquer silencieusement à 5 000 ferait disparaître des salons autorisés. Une pagination coordonnée avec Message-Service pourra être ajoutée si les volumes la justifient.
-- Propriétaire sans ServerMember après modification manuelle de la base : pas d'assertion; la création normale insère le membre. La date inconnue conserve le contrat depuis: null et évite d'inventer une date de lecture. Réparer les données incohérentes à leur source.
-- Décorateur ApiResponse : reporté; aucune modification du contrat, le type est déjà explicite dans le code. Amélioration Swagger facultative.
-- E2E dédié à la nouvelle route : reporté dans ce correctif limité aux bugs; le contrôleur délègue au service couvert et le garde de classe est déjà couvert en E2E sur les routes internes. Ajouter un scénario HTTP complet lors d'une évolution du contrat ou des permissions.
+- **Liste interne des salons lisibles non bornée** : Message-Service a besoin de tous les salons lisibles pour les non-lus et la recherche ; tronquer ferait disparaître des salons autorisés.
+- **Propriétaire sans `ServerMember` après une modification manuelle de la base** : pas d'assertion ; la création normale insère le membre et `depuis: null` évite d'inventer une date. Réparer les données à la source.
+- **Prisma reste une dépendance de production** : l'installation `--omit=dev` garde le CLI qui applique les migrations au démarrage (`node_modules/.bin/prisma`).
+- **Limite de découverte à 100** : c'est la borne métier existante.
+- **`overrides` de `js-yaml`** : il corrige un avis ; le retirer le réintroduirait.
+- **Un décalage au-delà du total** (membres, serveurs) renvoie une page vide sans requête `SKIP` ; pas de plafond arbitraire qui empêcherait de parcourir un grand serveur.
+- **`apk upgrade` dans l'image** : il applique volontairement les correctifs disponibles ; image de base identifiée par digest.
+- **Course sur le quota de serveurs possédés** entre créations et transferts simultanés : limite connue, sans contournement des droits. Une garantie stricte demanderait un verrou commun à toutes les créations et tous les transferts.
 
-Validation : audit high, lint, 198 tests unitaires (couverture 100 %), 14 tests E2E et build passent. Aucun changement de code Room-Service.
-
-### Reprise sécurité — review 6078284218
-
-- Le démarrage utilise désormais le point d’entrée public node_modules/.bin/prisma, vérifié au build, et les paquets système disponibles sont mis à jour. Le JSDoc redondant et le lien non portable du rapport sont corrigés.
-- Prisma est déjà une dépendance de production : l’installation omit=dev conserve le CLI. Aucun ajout ni déplacement de dépendance n’est nécessaire.
-- La limite de découverte de 100 correspond à la borne métier existante; renommer la constante ou déplacer des imports n’apporte pas de correction fonctionnelle.
-- js-yaml 4.3.2 existe dans le registre et l’installation reproductible ainsi que l’audit passent. Le supprimer réintroduirait l’avis corrigé.
-- Les métadonnées libc concernent des dépendances optionnelles de compilation; elles ne changent pas les autorisations métier. La construction réelle Alpine vérifie leur compatibilité plutôt qu’une édition manuelle du verrou.
-
-### Review 6084477946 — pagination et reconstruction
-
-- Un décalage au-delà du total des membres ou serveurs retourne une page vide sans requête SKIP; test d’un décalage de 999999999. Pas de plafond arbitraire 10000 qui empêcherait de parcourir un serveur légitime plus grand; le contrat de pagination reste inchangé.
-- apk upgrade actualise volontairement les paquets disponibles, avec image de diffusion identifiée par digest; npm reste verrouillé. Les RUN séparés ne changent pas la sécurité ni le démarrage et leur regroupement éditorial n’est pas retenu.
-- La course count/transfert sur le plafond des serveurs reste une limite connue de quota, sans contournement des droits de propriété : une garantie stricte demanderait de coordonner toutes les créations/transferts sous le même verrou transactionnel. Un verrou uniquement dans cette méthode ne résoudrait pas la course.
-- Les points favorables sur client-auth, YAML et métadonnées libc ne demandent aucune modification.
+- **Jeton interne** : comparer les longueurs avant `timingSafeEqual`, qui exige des buffers de même taille ; une longueur différente doit donner 401, pas une exception de comparaison.
+- **Serveur par défaut sans propriétaire** : `ownerId` est nul pour ce serveur commun ; la création des autres serveurs renseigne leur propriétaire.
+- **`SALON_GENERAL_ID` retiré des exports** : aucun appelant ne l'utilisait dans ce dépôt. Les identifiants en base et dans les autres services restent inchangés ; supprimer un export TypeScript ne modifie pas une migration.
+- **Version Swagger explicite** : elle décrit le contrat publié et est vérifiée par `main.spec.ts`. La modifier avec les métadonnées de publication évite de charger le package npm au démarrage ou de modifier les chemins de compilation pour une simple métadonnée.
+- **Revues GitHub** : configuration, secrets et rotation sont décrits dans le [guide Infra](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/c5fc686f262127f7985684d8df3739b549255eea/docs/revues-github.md). Les recopier dans les commentaires du workflow créerait une seconde procédure à maintenir.

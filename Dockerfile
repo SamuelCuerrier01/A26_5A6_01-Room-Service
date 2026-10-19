@@ -20,14 +20,11 @@ COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
-# Utilisateur non root fourni par l'image node.
-# Les migrations utilisent le CLI local : aucun gestionnaire npm au runtime.
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 RUN test -x node_modules/.bin/prisma
 
 USER node
 EXPOSE 3003
-# Utilisé hors Compose (le Compose d'Infra définit le même contrôle).
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://localhost:3003/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && exec node dist/main"]

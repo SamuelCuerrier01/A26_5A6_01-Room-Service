@@ -65,7 +65,6 @@ const makeServeur = (overrides: Record<string, unknown> = {}) =>
     ...overrides,
   });
 
-/** `_count.members`, comme l'include de Prisma. */
 function avecCompte<T extends { members: unknown[] }>(serveur: T) {
   return { ...serveur, _count: { members: serveur.members.length } };
 }
@@ -134,7 +133,6 @@ describe('ServersService', () => {
         data: [{ serverId: SERVEUR_PAR_DEFAUT_ID, userId: 'bob' }],
         skipDuplicates: true,
       });
-      // Déjà membre (count 0) : personne n'est prévenu.
       expect(evenements.notifier).not.toHaveBeenCalled();
       expect(prisma.server.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -164,10 +162,8 @@ describe('ServersService', () => {
       const serveur = await service.obtenir('srv-1', u('bob'));
       expect(serveur.salons.map((s) => s.id)).toEqual(['salon-1']);
       expect(serveur.invitations).toEqual([]);
-      // La liste des membres n'est plus renvoyée (voir listerMembres).
       expect(serveur).not.toHaveProperty('membres');
       expect(serveur.nombreMembres).toBe(3);
-      // Seule la ligne de l'appelant est chargée.
       expect(prisma.server.findUnique).toHaveBeenCalledWith(
         expect.objectContaining({
           include: expect.objectContaining({
@@ -546,7 +542,6 @@ describe('ServersService', () => {
       prisma.server.findUnique.mockResolvedValue(
         makeServeur({ isPublic: true }),
       );
-      // La requête concurrente a déjà créé le membre : rien n'est inséré.
       prisma.serverMember.createMany.mockResolvedValue({ count: 0 });
 
       await expect(
@@ -724,9 +719,7 @@ describe('ServersService', () => {
         service.inviter('srv-1', 'nouveau', u('modo')),
       ).rejects.toThrow(BadRequestException);
       expect(prisma.serverInvitation.create).not.toHaveBeenCalled();
-      // Refusée : personne n'est prévenu.
       expect(evenements.notifier).not.toHaveBeenCalled();
-      // Idempotence préservée même à la limite.
       await service.inviter('srv-1', 'invite-0', u('modo'));
       expect(prisma.serverInvitation.create).not.toHaveBeenCalled();
     });
@@ -836,7 +829,6 @@ describe('ServersService', () => {
       prisma.serverInvitation.findUnique.mockResolvedValue({
         userId: 'invite',
       });
-      // L'autre requête a déjà consommé l'invitation.
       prisma.serverInvitation.deleteMany.mockResolvedValue({ count: 0 });
       prisma.server.findUnique.mockResolvedValue(
         makeServeur({ members: [membre('owner'), membre('invite')] }),
@@ -849,7 +841,6 @@ describe('ServersService', () => {
   });
 
   describe('listerMembres', () => {
-    // findUnique du serveur : seule la ligne de l'appelant est chargée.
     const serveurPour = (
       appelant: string,
       overrides: Record<string, unknown> = {},
@@ -1046,7 +1037,6 @@ describe('ServersService', () => {
       expect(evenements.notifier).toHaveBeenCalledWith('srv-1', 'supprime', {
         destinataires: membresAvant,
       });
-      // Messages de tous ses salons, dans Message-Service.
       expect(evenements.salonsSupprimes).toHaveBeenCalledWith([
         'salon-1',
         'salon-modos',

@@ -1,7 +1,7 @@
 {
   "name": "a26-5a6-01-chatvardage-rooms-service",
-  "version": "1.0.0",
-  "description": "Rooms microservice for Chatvardage - Contrôle 2",
+  "version": "1.1.0",
+  "description": "Microservice des serveurs et salons de Chatvardage",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
@@ -11,6 +11,7 @@
     "start:dev": "node --env-file=.env ./node_modules/@nestjs/cli/bin/nest.js start --watch",
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,test}/**/*.ts\" --max-warnings=0",
+    "format:check": "prettier --check .",
     "lint:fix": "eslint \"{src,test}/**/*.ts\" --fix",
     "test": "jest --config jest.config.js",
     "test:watch": "jest --config jest.config.js --watch",
@@ -34,7 +35,6 @@
     "rxjs": "^7.8.1"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3.2.0",
     "@eslint/js": "^9.18.0",
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
@@ -48,11 +48,7 @@
     "globals": "^16.0.0",
     "jest": "^30.5.2",
     "prettier": "^3.4.2",
-    "source-map-support": "^0.5.21",
     "ts-jest": "^29.4.13",
-    "ts-loader": "^9.5.2",
-    "ts-node": "^10.9.2",
-    "tsconfig-paths": "^4.2.0",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0"
   },

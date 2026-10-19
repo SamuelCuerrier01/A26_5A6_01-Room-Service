@@ -11,15 +11,18 @@ services:
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-jeton-interne-local}
       MESSAGE_SERVICE_URL: ${MESSAGE_SERVICE_URL:-http://host.docker.internal:3004}
     ports:
-      - "3003:3003"
-    # Linux Docker Engine 20.10+ requis pour la valeur spéciale host-gateway.
+      - '3003:3003'
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - 'host.docker.internal:host-gateway'
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3003/api/health >/dev/null || exit 1"]
+      test:
+        [
+          'CMD-SHELL',
+          'wget -qO- http://localhost:3003/api/health >/dev/null || exit 1',
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -32,11 +35,11 @@ services:
       POSTGRES_PASSWORD: room_service_dev
       POSTGRES_DB: chatvardage_rooms
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - rooms-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U room_service -d chatvardage_rooms"]
+      test: ['CMD-SHELL', 'pg_isready -U room_service -d chatvardage_rooms']
       interval: 5s
       timeout: 3s
       retries: 10
