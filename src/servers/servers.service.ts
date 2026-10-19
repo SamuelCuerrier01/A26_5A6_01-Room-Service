@@ -36,7 +36,7 @@ import {
 export const MAX_SERVEURS_POSSEDES = 100;
 export const MAX_INVITATIONS_EN_ATTENTE = 200;
 
-export const serveurInclude = {
+const serveurInclude = {
   members: { orderBy: { joinedAt: 'asc' as const } },
   invitations: { orderBy: { invitedAt: 'asc' as const } },
   channels: {

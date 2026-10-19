@@ -13,7 +13,7 @@ export type OptionsEvenement = {
 
 const DELAI_ENVOI_MS = 2000;
 export const TAILLE_LOT_SALONS = 500;
-export const ATTENTES_PURGE_MS = [1000, 4000];
+const ATTENTES_PURGE_MS = [1000, 4000];
 
 @Injectable()
 export class EvenementsService {
