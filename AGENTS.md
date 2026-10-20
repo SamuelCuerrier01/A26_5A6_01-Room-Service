@@ -1,6 +1,6 @@
 # AGENTS.md — Chatvardage Room Service
 
-Ce fichier contient les règles de travail pour tout agent IA ou développeur qui modifie ce dépôt.
+Règles de travail pour toute personne ou tout agent qui modifie ce dépôt.
 
 ## Contexte du projet
 
@@ -8,16 +8,17 @@ Ce dépôt est le **Room-Service** de Chatvardage.
 
 Architecture d'équipe :
 
-- `Frontend` : Electron et ChatGateway réel.
+- `Frontend` : client Electron.
+- `Mobile` : application Expo (React Native).
 - `Serveur-API` : API Gateway / point d'entrée unique.
 - `Authentification` : utilisateurs, authentification et rôles.
 - `Room-Service` : serveurs (façon Discord), leurs membres, rôles et salons.
-- `Message-Service` : messages privés, historique et temps réel.
+- `Message-Service` : messages privés et de salon, historique et temps réel.
 - `User-Config-Service` : alias, thème et préférences.
 - `Dashboard` : panneau d'administration / AdminJS.
 - `Infra` : Docker Compose, PostgreSQL, Redis et orchestration globale.
 
-Le Room-Service ne doit **pas** prendre en charge les messages privés, Redis, le WebSocket, les configurations utilisateur ou l'authentification. Les messages de groupe sont reportés à un contrôle ultérieur.
+Le Room-Service ne doit **pas** prendre en charge les messages (privés ou de salon), Redis, le WebSocket, les configurations utilisateur ou l'authentification.
 
 ## Stack
 
@@ -39,7 +40,7 @@ Le service doit conserver la responsabilité de :
 - gérer les membres d'un serveur, leurs rôles (propriétaire, modérateur, membre) et les invitations;
 - gérer le serveur par défaut « Chatvardage » (tout le monde en est membre, impossible à quitter);
 - appliquer les permissions selon le rôle de l'appelant DANS le serveur (seul l'`admin` global d'Authentification a des droits partout);
-- exposer à Message-Service, par une route interne protégée par jeton, l'accès d'un utilisateur à un salon;
+- exposer à Message-Service, par des routes internes protégées par jeton, l'accès d'un utilisateur à un salon et la liste des salons qu'il peut lire (avec sa date d'arrivée dans chaque serveur, pour les messages non lus et la recherche);
 - persister serveurs, membres, invitations et salons dans PostgreSQL;
 - exposer un healthcheck pour le service et PostgreSQL.
 
@@ -110,6 +111,7 @@ Puis exécuter au minimum :
 ```bash
 npm audit --audit-level=high
 npm run lint
+npm run format:check
 npm test
 npm run test:e2e
 npm run build
@@ -158,6 +160,7 @@ Les tests E2E doivent refléter les routes actuelles du Room-Service et ne doive
 - Valider les entrées avec les DTO et `class-validator`.
 - Retourner des erreurs HTTP NestJS explicites (`BadRequestException`, `ForbiddenException`, `NotFoundException`, etc.).
 - Ne pas laisser de code généré, mort ou de dépendances inutilisées.
+- Pas de commentaires dans le code : les explications vont dans le README, le guide du service d'Infra ou ce fichier. Seules restent les directives d'outils.
 
 ## Fichiers partagés (`src/partage/`)
 
@@ -190,7 +193,7 @@ curl http://localhost:3003/api/health
 
 Le `compose.local.yml` sert au développement autonome. L'environnement final est orchestré par le dépôt `Infra`.
 
-Ne pas ajouter Redis au Room-Service : Redis/WebSocket appartient au flux temps réel des messages privés dans `Message-Service`.
+Ne pas ajouter Redis au Room-Service : Redis/WebSocket appartient au flux temps réel de `Message-Service`, que Room-Service prévient des changements de serveur par HTTP interne.
 
 ## Documentation
 
@@ -223,6 +226,7 @@ Vérifier :
 Dans la description de PR, résumer les changements, indiquer les tests exécutés et signaler tout impact sur les autres dépôts.
 
 ## Couverture obligatoire
+
 - `npm run test:cov` doit terminer avec 100 % Statements, Branches, Functions et Lines.
 - Le seuil Jest global est fixé à 100 % : toute baisse fait échouer la commande.
 - Toute nouvelle branche de logique doit être accompagnée de tests couvrant succès, refus et erreurs.
@@ -231,3 +235,20 @@ Dans la description de PR, résumer les changements, indiquer les tests exécut�
 ## Documentation centrale
 
 Infra est la référence du démarrage complet, des architectures, contrats et scénarios de validation. Le README local décrit le dépôt et ses commandes; les guides détaillés sont dans `A26_5A6_01-Infra/docs/`. Toute modification de contrat doit mettre à jour la référence centrale et ses liens.
+
+## Choix délibérés (ne pas « corriger »)
+
+- **Liste interne des salons lisibles non bornée** : Message-Service a besoin de tous les salons lisibles pour les non-lus et la recherche ; tronquer ferait disparaître des salons autorisés.
+- **Propriétaire sans `ServerMember` après une modification manuelle de la base** : pas d'assertion ; la création normale insère le membre et `depuis: null` évite d'inventer une date. Réparer les données à la source.
+- **Prisma reste une dépendance de production** : l'installation `--omit=dev` garde le CLI qui applique les migrations au démarrage (`node_modules/.bin/prisma`).
+- **Limite de découverte à 100** : c'est la borne métier existante.
+- **`overrides` de `js-yaml`** : il corrige un avis ; le retirer le réintroduirait.
+- **Un décalage au-delà du total** (membres, serveurs) renvoie une page vide sans requête `SKIP` ; pas de plafond arbitraire qui empêcherait de parcourir un grand serveur.
+- **`apk upgrade` dans l'image** : il applique volontairement les correctifs disponibles ; image de base identifiée par digest.
+- **Course sur le quota de serveurs possédés** entre créations et transferts simultanés : limite connue, sans contournement des droits. Une garantie stricte demanderait un verrou commun à toutes les créations et tous les transferts.
+
+- **Jeton interne** : comparer les longueurs avant `timingSafeEqual`, qui exige des buffers de même taille ; une longueur différente doit donner 401, pas une exception de comparaison.
+- **Serveur par défaut sans propriétaire** : `ownerId` est nul pour ce serveur commun ; la création des autres serveurs renseigne leur propriétaire.
+- **`SALON_GENERAL_ID` retiré des exports** : aucun appelant ne l'utilisait dans ce dépôt. Les identifiants en base et dans les autres services restent inchangés ; supprimer un export TypeScript ne modifie pas une migration.
+- **Version Swagger explicite** : elle décrit le contrat publié et est vérifiée par `main.spec.ts`. La modifier avec les métadonnées de publication évite de charger le package npm au démarrage ou de modifier les chemins de compilation pour une simple métadonnée.
+- **Revues GitHub** : configuration, secrets et rotation sont décrits dans le [guide Infra](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/c5fc686f262127f7985684d8df3739b549255eea/docs/revues-github.md). Les recopier dans les commentaires du workflow créerait une seconde procédure à maintenir.

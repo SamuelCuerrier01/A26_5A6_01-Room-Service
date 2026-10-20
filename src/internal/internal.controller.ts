@@ -57,6 +57,23 @@ export class InternalController {
     return this.channels.acces(id, userId, query.role ?? 'utilisateur');
   }
 
+  @Get('users/:userId/channels')
+  @ApiOperation({
+    summary:
+      "Salons lisibles par un utilisateur, avec sa date d'arrivée dans chaque serveur (pour Message-Service)",
+  })
+  async salonsLisibles(
+    @Param('userId') userId: string,
+    @Query() query: AccesQueryDto,
+  ) {
+    return {
+      salons: await this.channels.salonsLisibles(
+        userId,
+        query.role ?? 'utilisateur',
+      ),
+    };
+  }
+
   @Delete('users/:userId')
   @ApiOperation({
     summary:

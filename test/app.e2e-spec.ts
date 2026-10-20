@@ -12,8 +12,6 @@ import {
   SERVEUR_PAR_DEFAUT_ID,
 } from '../src/servers/default-server';
 
-// Pipeline HTTP complète (garde JWT, ValidationPipe, contrôleurs, services)
-// avec AuthService et PrismaService simulés.
 describe('Room-Service : serveurs et salons (e2e)', () => {
   let app: INestApplication;
   let baseUrl: string;
@@ -338,7 +336,6 @@ describe('Room-Service : serveurs et salons (e2e)', () => {
   });
 
   it('GET /api/rooms/:id (ancienne route sans JWT) n’existe plus', async () => {
-    // Exposait nom et membres de serveurs privés à n'importe qui.
     expect((await requete(`/api/rooms/${SALON_ANNONCES_ID}`)).status).toBe(404);
   });
 });

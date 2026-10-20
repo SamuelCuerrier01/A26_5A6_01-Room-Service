@@ -30,12 +30,9 @@ export class CreateServerDto {
   public?: boolean;
 }
 
-// Image en data URL, mêmes règles que l'avatar (User-Config-Service) : PNG,
-// JPEG ou WebP en base64 (pas de SVG, qui peut contenir du script), ou
-// chaîne vide pour retirer l'icône.
-export const FORMAT_ICONE =
+const FORMAT_ICONE =
   /^(data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2})?$/;
-export const LONGUEUR_MAX_ICONE = 90_000;
+const LONGUEUR_MAX_ICONE = 90_000;
 
 export class UpdateServerDto {
   @ApiPropertyOptional({ example: 'Projet final' })

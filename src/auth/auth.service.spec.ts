@@ -1,8 +1,6 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 
-// Le détail (configuration, cache, erreurs) est testé dans
-// src/partage/client-auth.spec.ts.
 describe('AuthService', () => {
   const originalFetch = global.fetch;
 

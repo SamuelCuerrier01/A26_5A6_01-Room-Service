@@ -7,21 +7,16 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Rôle d'un membre DANS un serveur. Le propriétaire n'est pas un rôle :
-// c'est `Server.ownerId` (voir src/servers/permissions.ts).
 enum ServerRole {
   membre
   moderateur
 }
 
-// Qui voit un salon : tous les membres du serveur, ou seulement ses
-// modérateurs (et le propriétaire / les admins globaux).
 enum ChannelAccess {
   tous
   moderateurs
 }
 
-// Qui peut écrire dans un salon visible (ex. #annonces : moderateurs).
 enum ChannelWrite {
   tous
   moderateurs
@@ -30,10 +25,7 @@ enum ChannelWrite {
 model Server {
   id          String             @id @default(uuid())
   name        String
-  // Image en data URL (même format que l'avatar de User-Config-Service).
   icon        String?
-  // null uniquement pour le serveur par défaut « Chatvardage », géré par
-  // les administrateurs globaux (voir src/servers/default-server.ts).
   ownerId     String?
   isPublic    Boolean            @default(false)
   isDefault   Boolean            @default(false)
@@ -69,8 +61,6 @@ model ServerInvitation {
   @@index([userId])
 }
 
-// Un salon d'un serveur. Le nom de modèle `Room` est conservé : les
-// messages de Message-Service référencent ces identifiants (`roomId`).
 model Room {
   id          String        @id @default(uuid())
   serverId    String

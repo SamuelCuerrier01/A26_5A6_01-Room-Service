@@ -44,7 +44,6 @@ const serveur = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-/** Salon chargé avec SEULEMENT la ligne ServerMember de l'utilisateur visé. */
 const salonAvec = (
   qui: ReturnType<typeof membre> | null,
   overrides: Record<string, unknown> = {},
@@ -64,7 +63,7 @@ describe('ChannelsService', () => {
 
   beforeEach(() => {
     prisma = {
-      server: { findUnique: jest.fn() },
+      server: { findUnique: jest.fn(), findMany: jest.fn() },
       room: {
         create: jest.fn(),
         update: jest.fn(),
@@ -241,7 +240,6 @@ describe('ChannelsService', () => {
         where: { id: 'salon-1' },
       });
       expect(evenements.notifier).toHaveBeenCalledWith('srv-1', 'salons');
-      // Ses messages, dans Message-Service.
       expect(evenements.salonsSupprimes).toHaveBeenCalledWith(['salon-1']);
     });
   });
@@ -321,6 +319,93 @@ describe('ChannelsService', () => {
         peutEcrire: false,
         peutModerer: false,
       });
+    });
+  });
+
+  describe('salonsLisibles (route interne)', () => {
+    const arrivee = new Date('2026-03-04T05:06:07.000Z');
+    const srv = (
+      id: string,
+      membres: { role: 'membre' | 'moderateur'; joinedAt: Date }[],
+      salons: { id: string; access: 'tous' | 'moderateurs' }[],
+      overrides: Record<string, unknown> = {},
+    ) => ({
+      id,
+      ownerId: 'owner',
+      isDefault: false,
+      members: membres,
+      channels: salons,
+      ...overrides,
+    });
+
+    it('filtre les salons selon le rôle et donne la date d’arrivée', async () => {
+      prisma.server.findMany.mockResolvedValue([
+        srv(
+          'srv-membre',
+          [{ role: 'membre', joinedAt: arrivee }],
+          [
+            { id: 'ouvert', access: 'tous' },
+            { id: 'modos', access: 'moderateurs' },
+          ],
+        ),
+        srv(
+          'srv-modo',
+          [{ role: 'moderateur', joinedAt: arrivee }],
+          [{ id: 'reserve', access: 'moderateurs' }],
+        ),
+        srv('defaut', [], [{ id: 'general', access: 'tous' }], {
+          ownerId: null,
+          isDefault: true,
+        }),
+      ]);
+
+      await expect(
+        service.salonsLisibles('bob', 'utilisateur'),
+      ).resolves.toEqual([
+        {
+          salonId: 'ouvert',
+          serveurId: 'srv-membre',
+          depuis: arrivee.toISOString(),
+        },
+        {
+          salonId: 'reserve',
+          serveurId: 'srv-modo',
+          depuis: arrivee.toISOString(),
+        },
+        { salonId: 'general', serveurId: 'defaut', depuis: null },
+      ]);
+      expect(prisma.server.findMany).toHaveBeenCalledWith({
+        where: {
+          OR: [
+            { members: { some: { userId: 'bob' } } },
+            { ownerId: 'bob' },
+            { isDefault: true },
+          ],
+        },
+        select: {
+          id: true,
+          ownerId: true,
+          isDefault: true,
+          members: {
+            where: { userId: 'bob' },
+            select: { role: true, joinedAt: true },
+          },
+          channels: {
+            select: { id: true, access: true },
+            orderBy: { position: 'asc' },
+          },
+        },
+      });
+    });
+
+    it('admin global : tous les serveurs, tous les salons', async () => {
+      prisma.server.findMany.mockResolvedValue([
+        srv('prive', [], [{ id: 'modos', access: 'moderateurs' }]),
+      ]);
+      await expect(service.salonsLisibles('root', 'admin')).resolves.toEqual([
+        { salonId: 'modos', serveurId: 'prive', depuis: null },
+      ]);
+      expect(prisma.server.findMany.mock.calls[0][0].where).toEqual({});
     });
   });
 });

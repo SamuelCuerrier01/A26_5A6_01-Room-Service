@@ -65,7 +65,6 @@ const makeServeur = (overrides: Record<string, unknown> = {}) =>
     ...overrides,
   });
 
-/** `_count.members`, comme l'include de Prisma. */
 function avecCompte<T extends { members: unknown[] }>(serveur: T) {
   return { ...serveur, _count: { members: serveur.members.length } };
 }
@@ -134,7 +133,6 @@ describe('ServersService', () => {
         data: [{ serverId: SERVEUR_PAR_DEFAUT_ID, userId: 'bob' }],
         skipDuplicates: true,
       });
-      // Déjà membre (count 0) : personne n'est prévenu.
       expect(evenements.notifier).not.toHaveBeenCalled();
       expect(prisma.server.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -164,10 +162,8 @@ describe('ServersService', () => {
       const serveur = await service.obtenir('srv-1', u('bob'));
       expect(serveur.salons.map((s) => s.id)).toEqual(['salon-1']);
       expect(serveur.invitations).toEqual([]);
-      // La liste des membres n'est plus renvoyée (voir listerMembres).
       expect(serveur).not.toHaveProperty('membres');
       expect(serveur.nombreMembres).toBe(3);
-      // Seule la ligne de l'appelant est chargée.
       expect(prisma.server.findUnique).toHaveBeenCalledWith(
         expect.objectContaining({
           include: expect.objectContaining({
@@ -222,35 +218,77 @@ describe('ServersService', () => {
       );
     });
 
-    it('decouvrir filtre les serveurs publics non rejoints, par nom', async () => {
+    it('decouvrir filtre les serveurs publics non rejoints, par nom, par pages', async () => {
+      prisma.server.count = jest.fn().mockResolvedValue(3);
       prisma.server.findMany.mockResolvedValue([
         { ...makeServeur({ isPublic: true }), _count: { members: 3 } },
       ]);
-      await expect(service.decouvrir(u('bob'), 'pro')).resolves.toEqual([
-        {
-          type: 'serveur',
-          id: 'srv-1',
-          nom: 'Projet',
-          icone: null,
-          public: true,
-          nombreMembres: 3,
-        },
-      ]);
+      await expect(service.decouvrir(u('bob'), 'pro')).resolves.toEqual({
+        serveurs: [
+          {
+            type: 'serveur',
+            id: 'srv-1',
+            nom: 'Projet',
+            icone: null,
+            public: true,
+            nombreMembres: 3,
+          },
+        ],
+        total: 3,
+        suivant: 1,
+      });
+      const where = {
+        isPublic: true,
+        members: { none: { userId: 'bob' } },
+        name: { contains: 'pro', mode: 'insensitive' },
+      };
+      expect(prisma.server.count).toHaveBeenCalledWith({ where });
       expect(prisma.server.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: {
-            isPublic: true,
-            members: { none: { userId: 'bob' } },
-            name: { contains: 'pro', mode: 'insensitive' },
-          },
-          take: 20,
+          where,
+          orderBy: [
+            { members: { _count: 'desc' } },
+            { name: 'asc' },
+            { id: 'asc' },
+          ],
+          skip: 0,
+          take: 10,
         }),
       );
     });
 
+    it('decouvrir : page suivante et dernière page', async () => {
+      prisma.server.count = jest.fn().mockResolvedValue(3);
+      prisma.server.findMany.mockResolvedValue([
+        { ...makeServeur({ isPublic: true }), _count: { members: 1 } },
+      ]);
+      await expect(
+        service.decouvrir(u('bob'), undefined, { decalage: 2, limite: 2 }),
+      ).resolves.toMatchObject({ total: 3, suivant: null });
+      expect(prisma.server.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 2, take: 2 }),
+      );
+    });
+
+    it('un décalage hors liste ne lance aucune requête SKIP de serveur', async () => {
+      prisma.server.count = jest.fn().mockResolvedValue(3);
+      await expect(
+        service.decouvrir(u('bob'), undefined, { decalage: 999999999 }),
+      ).resolves.toEqual({ serveurs: [], total: 3, suivant: null });
+      await expect(
+        service.listerPourAdmin(admin, { decalage: 999999999 }),
+      ).resolves.toEqual({ serveurs: [], total: 3, suivant: null });
+      expect(prisma.server.findMany).not.toHaveBeenCalled();
+    });
+
     it('decouvrir sans texte ne filtre pas sur le nom', async () => {
+      prisma.server.count = jest.fn().mockResolvedValue(0);
       prisma.server.findMany.mockResolvedValue([]);
-      await service.decouvrir(u('bob'));
+      await expect(service.decouvrir(u('bob'))).resolves.toEqual({
+        serveurs: [],
+        total: 0,
+        suivant: null,
+      });
       expect(prisma.server.findMany.mock.calls[0][0].where).toEqual({
         isPublic: true,
         members: { none: { userId: 'bob' } },
@@ -504,7 +542,6 @@ describe('ServersService', () => {
       prisma.server.findUnique.mockResolvedValue(
         makeServeur({ isPublic: true }),
       );
-      // La requête concurrente a déjà créé le membre : rien n'est inséré.
       prisma.serverMember.createMany.mockResolvedValue({ count: 0 });
 
       await expect(
@@ -566,6 +603,47 @@ describe('ServersService', () => {
       await expect(
         service.expulser('srv-1', 'modo2', u('modo')),
       ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('un admin expulse le propriétaire en transférant la propriété', async () => {
+      prisma.server.findUnique.mockResolvedValue(
+        makeServeur({ members: [membre('owner'), membre('bob')] }),
+      );
+      await service.expulser('srv-1', 'owner', admin, 'bob');
+      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(prisma.server.update).toHaveBeenCalledWith({
+        where: { id: 'srv-1' },
+        data: { ownerId: 'bob' },
+      });
+      expect(prisma.serverMember.delete).toHaveBeenCalledWith({
+        where: { serverId_userId: { serverId: 'srv-1', userId: 'owner' } },
+      });
+      expect(evenements.notifier).toHaveBeenCalledWith(
+        'srv-1',
+        'expulse',
+        expect.objectContaining({ cibleId: 'owner' }),
+      );
+    });
+
+    it('expulser le propriétaire exige un autre membre comme successeur', async () => {
+      prisma.server.findUnique.mockResolvedValue(
+        makeServeur({ members: [membre('owner'), membre('bob')] }),
+      );
+      await expect(service.expulser('srv-1', 'owner', admin)).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(
+        service.expulser('srv-1', 'owner', admin, 'owner'),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.expulser('srv-1', 'owner', admin, 'inconnu'),
+      ).rejects.toThrow(NotFoundException);
+      prisma.server.count.mockResolvedValueOnce(MAX_SERVEURS_POSSEDES);
+      await expect(
+        service.expulser('srv-1', 'owner', admin, 'bob'),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.server.update).not.toHaveBeenCalled();
+      expect(prisma.serverMember.delete).not.toHaveBeenCalled();
     });
 
     it('un modérateur expulse un membre', async () => {
@@ -641,9 +719,7 @@ describe('ServersService', () => {
         service.inviter('srv-1', 'nouveau', u('modo')),
       ).rejects.toThrow(BadRequestException);
       expect(prisma.serverInvitation.create).not.toHaveBeenCalled();
-      // Refusée : personne n'est prévenu.
       expect(evenements.notifier).not.toHaveBeenCalled();
-      // Idempotence préservée même à la limite.
       await service.inviter('srv-1', 'invite-0', u('modo'));
       expect(prisma.serverInvitation.create).not.toHaveBeenCalled();
     });
@@ -753,7 +829,6 @@ describe('ServersService', () => {
       prisma.serverInvitation.findUnique.mockResolvedValue({
         userId: 'invite',
       });
-      // L'autre requête a déjà consommé l'invitation.
       prisma.serverInvitation.deleteMany.mockResolvedValue({ count: 0 });
       prisma.server.findUnique.mockResolvedValue(
         makeServeur({ members: [membre('owner'), membre('invite')] }),
@@ -766,7 +841,6 @@ describe('ServersService', () => {
   });
 
   describe('listerMembres', () => {
-    // findUnique du serveur : seule la ligne de l'appelant est chargée.
     const serveurPour = (
       appelant: string,
       overrides: Record<string, unknown> = {},
@@ -804,6 +878,16 @@ describe('ServersService', () => {
         skip: 0,
         take: 1,
       });
+    });
+
+    it('refuse le travail SQL de pagination au-delà du total réel', async () => {
+      prisma.server.findUnique.mockResolvedValue(serveurPour('bob'));
+      prisma.serverMember.findUnique.mockResolvedValue(membre('owner'));
+      prisma.serverMember.count.mockResolvedValue(2);
+      await expect(
+        service.listerMembres('srv-1', u('bob'), { decalage: 999999999 }),
+      ).resolves.toEqual({ membres: [], total: 3, suivant: null });
+      expect(prisma.serverMember.findMany).not.toHaveBeenCalled();
     });
 
     it('page suivante : décalée du propriétaire, dernière page', async () => {
@@ -953,7 +1037,6 @@ describe('ServersService', () => {
       expect(evenements.notifier).toHaveBeenCalledWith('srv-1', 'supprime', {
         destinataires: membresAvant,
       });
-      // Messages de tous ses salons, dans Message-Service.
       expect(evenements.salonsSupprimes).toHaveBeenCalledWith([
         'salon-1',
         'salon-modos',

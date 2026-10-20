@@ -18,10 +18,10 @@ import {
 import { ServersService } from './servers.service';
 import {
   AccesSalonResponse,
+  SalonLisibleResponse,
   SalonResponse,
 } from './types/server-response.type';
 
-// Salons d'un même serveur (même raison que MAX_SERVEURS_POSSEDES).
 export const MAX_SALONS_PAR_SERVEUR = 200;
 
 @Injectable()
@@ -32,7 +32,6 @@ export class ChannelsService {
     private readonly evenements: EvenementsService,
   ) {}
 
-  /** Créer un salon : modérateur du serveur minimum. */
   async creer(
     serveurId: string,
     dto: CreateChannelDto,
@@ -53,7 +52,6 @@ export class ChannelsService {
       );
     }
 
-    // Nouveau salon en fin de liste.
     const position =
       serveur.channels.reduce(
         (max, salon) => Math.max(max, salon.position),
@@ -99,12 +97,10 @@ export class ChannelsService {
         ...(dto.position !== undefined ? { position: dto.position } : {}),
       },
     });
-    // Salon rendu réservé aux modérateurs : les membres le perdent aussitôt.
     this.evenements.notifier(salon.serverId, 'salons');
     return this.servers.versSalon(salon, role);
   }
 
-  /** Supprimer un salon ; un serveur garde toujours au moins un salon. */
   async supprimer(salonId: string, acteur: Acteur): Promise<void> {
     const { salon } = await this.contexteModeration(salonId, acteur);
     const nombre = await this.prisma.room.count({
@@ -118,10 +114,6 @@ export class ChannelsService {
     this.evenements.salonsSupprimes([salonId]);
   }
 
-  /**
-   * Accès d'un utilisateur à un salon, pour Message-Service (route
-   * interne). `roleGlobal` vient du JWT déjà validé par Message-Service.
-   */
   async acces(
     salonId: string,
     utilisateurId: string,
@@ -139,12 +131,55 @@ export class ChannelsService {
       estMembre: membre !== undefined || salon.server.isDefault,
       peutLire: peutVoirSalon(role, salon),
       peutEcrire: peutEcrireSalon(role, salon),
-      // Supprimer les messages des autres dans ce salon.
       peutModerer: peutModerer(role),
     };
   }
 
-  // --- Outils -------------------------------------------------------------------
+  async salonsLisibles(
+    utilisateurId: string,
+    roleGlobal: AuthenticatedUser['role'],
+  ): Promise<SalonLisibleResponse[]> {
+    const serveurs = await this.prisma.server.findMany({
+      where:
+        roleGlobal === 'admin'
+          ? {}
+          : {
+              OR: [
+                { members: { some: { userId: utilisateurId } } },
+                { ownerId: utilisateurId },
+                { isDefault: true },
+              ],
+            },
+      select: {
+        id: true,
+        ownerId: true,
+        isDefault: true,
+        members: {
+          where: { userId: utilisateurId },
+          select: { role: true, joinedAt: true },
+        },
+        channels: {
+          select: { id: true, access: true },
+          orderBy: { position: 'asc' },
+        },
+      },
+    });
+
+    return serveurs.flatMap((serveur) => {
+      const membre = serveur.members[0];
+      const role = roleEffectif(serveur, membre, {
+        id: utilisateurId,
+        role: roleGlobal,
+      });
+      return serveur.channels
+        .filter((salon) => peutVoirSalon(role, salon))
+        .map((salon) => ({
+          salonId: salon.id,
+          serveurId: serveur.id,
+          depuis: membre ? membre.joinedAt.toISOString() : null,
+        }));
+    });
+  }
 
   private async chargerSalon(salonId: string, utilisateurId: string) {
     const salon = await this.prisma.room.findUnique({
@@ -159,7 +194,6 @@ export class ChannelsService {
     return salon;
   }
 
-  /** Salon visible par l'appelant ET appelant modérateur, sinon 404 / 403. */
   private async contexteModeration(salonId: string, acteur: Acteur) {
     const salon = await this.chargerSalon(salonId, acteur.id);
     const role: RoleServeur | null = roleEffectif(

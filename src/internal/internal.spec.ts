@@ -65,6 +65,22 @@ describe('route interne', () => {
     expect(channels.acces).toHaveBeenCalledWith('salon', 'root', 'admin');
   });
 
+  it('InternalController liste les salons lisibles (utilisateur par défaut)', async () => {
+    const channels = {
+      salonsLisibles: jest.fn().mockResolvedValue([{ salonId: 's' }]),
+    };
+    const c = new InternalController(
+      channels as unknown as ChannelsService,
+      {} as ServersService,
+    );
+    await expect(c.salonsLisibles('bob', {})).resolves.toEqual({
+      salons: [{ salonId: 's' }],
+    });
+    expect(channels.salonsLisibles).toHaveBeenCalledWith('bob', 'utilisateur');
+    await c.salonsLisibles('root', { role: 'admin' });
+    expect(channels.salonsLisibles).toHaveBeenCalledWith('root', 'admin');
+  });
+
   it('InternalController délègue la suppression d’un compte', async () => {
     const servers = {
       supprimerUtilisateur: jest.fn().mockResolvedValue({ ok: 1 }),

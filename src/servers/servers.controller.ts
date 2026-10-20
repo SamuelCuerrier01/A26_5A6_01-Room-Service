@@ -24,6 +24,7 @@ import { CreateChannelDto } from './dto/channel.dto';
 import { CreateServerDto, UpdateServerDto } from './dto/create-server.dto';
 import {
   DiscoverServersQueryDto,
+  KickMemberQueryDto,
   InviteMemberDto,
   ListMembersQueryDto,
   UpdateMemberRoleDto,
@@ -55,7 +56,10 @@ export class ServersController {
     @Query() query: DiscoverServersQueryDto,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.servers.decouvrir(requireUser(request), query.q);
+    return this.servers.decouvrir(requireUser(request), query.q, {
+      decalage: query.decalage,
+      limite: query.limite,
+    });
   }
 
   @Get('invitations/me')
@@ -149,14 +153,23 @@ export class ServersController {
   @Delete(':id/members/:userId')
   @ApiOperation({
     summary: 'Expulse un membre',
-    description: 'Modérateur minimum, et au-dessus du membre expulsé.',
+    description:
+      'Modérateur minimum, et au-dessus du membre expulsé. Expulser le ' +
+      'propriétaire (administrateur seulement) exige `nouveauProprietaire`, ' +
+      'un autre membre qui reçoit la propriété du serveur.',
   })
   expulser(
     @Param('id') id: string,
     @Param('userId') userId: string,
+    @Query() query: KickMemberQueryDto,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.servers.expulser(id, userId, requireUser(request));
+    return this.servers.expulser(
+      id,
+      userId,
+      requireUser(request),
+      query.nouveauProprietaire,
+    );
   }
 
   @Patch(':id/members/:userId')

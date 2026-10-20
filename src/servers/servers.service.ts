@@ -9,7 +9,10 @@ import { Prisma, ServerRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateServerDto, UpdateServerDto } from './dto/create-server.dto';
 import { SERVEUR_PAR_DEFAUT_ID } from './default-server';
-import { LIMITE_MEMBRES_DEFAUT } from './dto/member.dto';
+import {
+  LIMITE_DECOUVERTE_DEFAUT,
+  LIMITE_MEMBRES_DEFAUT,
+} from './dto/member.dto';
 import { EvenementsService } from './evenements.service';
 import {
   Acteur,
@@ -30,16 +33,10 @@ import {
   ServeurResumeResponse,
 } from './types/server-response.type';
 
-// Nombre maximal de serveurs publics renvoyés par la recherche.
-const LIMITE_DECOUVERTE = 20;
-// Serveurs qu'un même compte peut posséder : sans plafond, un script pouvait
-// en créer indéfiniment (chacun avec son salon).
 export const MAX_SERVEURS_POSSEDES = 100;
-// Invitations en attente d'un même serveur : sans plafond, un modérateur
-// pouvait en créer indéfiniment, y compris pour des identifiants inventés.
 export const MAX_INVITATIONS_EN_ATTENTE = 200;
 
-export const serveurInclude = {
+const serveurInclude = {
   members: { orderBy: { joinedAt: 'asc' as const } },
   invitations: { orderBy: { invitedAt: 'asc' as const } },
   channels: {
@@ -48,11 +45,6 @@ export const serveurInclude = {
   _count: { select: { members: true } },
 } satisfies Prisma.ServerInclude;
 
-/**
- * Même forme que serveurInclude, mais sans charger tous les membres : seule
- * la ligne de l'appelant (pour son rôle). Pour les lectures, où la liste
- * complète ne sert pas (voir listerMembres).
- */
 function serveurIncludeLecture(utilisateurId: string) {
   return {
     ...serveurInclude,
@@ -78,19 +70,7 @@ export class ServersService {
     private readonly evenements: EvenementsService,
   ) {}
 
-  // --- Lecture ---------------------------------------------------------------
-
-  /**
-   * Serveurs dont l'appelant est membre, le serveur par défaut en premier.
-   * Ajoute au passage l'appelant au serveur par défaut « Chatvardage » (tout
-   * le monde en fait partie) : le Frontend fait cet appel dès l'ouverture de
-   * session, donc dès l'inscription.
-   */
   async listerMesServeurs(acteur: Acteur): Promise<ServeurResponse[]> {
-    // ON CONFLICT DO NOTHING. Personne n'est prévenu : une arrivée dans le
-    // serveur par défaut ne change que son nombre de membres, et prévenir
-    // tout le monde à chaque inscription faisait recharger la page de tous
-    // les clients connectés.
     await this.prisma.serverMember.createMany({
       data: [{ serverId: SERVEUR_PAR_DEFAUT_ID, userId: acteur.id }],
       skipDuplicates: true,
@@ -106,30 +86,43 @@ export class ServersService {
     );
   }
 
-  /** Serveurs publics dont l'appelant n'est pas encore membre. */
   async decouvrir(
     acteur: Acteur,
     recherche?: string,
-  ): Promise<ServeurResumeResponse[]> {
+    options: { decalage?: number; limite?: number } = {},
+  ): Promise<PageServeursResponse> {
+    const decalage = options.decalage ?? 0;
+    const limite = options.limite ?? LIMITE_DECOUVERTE_DEFAUT;
+    const where = {
+      isPublic: true,
+      members: { none: { userId: acteur.id } },
+      ...(recherche
+        ? { name: { contains: recherche, mode: 'insensitive' as const } }
+        : {}),
+    };
+    const total = await this.prisma.server.count({ where });
+    if (decalage > 0 && decalage >= total) {
+      return { serveurs: [], total, suivant: null };
+    }
     const serveurs = await this.prisma.server.findMany({
-      where: {
-        isPublic: true,
-        members: { none: { userId: acteur.id } },
-        ...(recherche
-          ? { name: { contains: recherche, mode: 'insensitive' as const } }
-          : {}),
-      },
+      where,
       include: { _count: { select: { members: true } } },
-      orderBy: { name: 'asc' },
-      take: LIMITE_DECOUVERTE,
+      orderBy: [
+        { members: { _count: 'desc' } },
+        { name: 'asc' },
+        { id: 'asc' },
+      ],
+      skip: decalage,
+      take: limite,
     });
-    return serveurs.map((serveur) => this.versResume(serveur));
+    const fin = decalage + serveurs.length;
+    return {
+      serveurs: serveurs.map((serveur) => this.versResume(serveur)),
+      total,
+      suivant: fin < total ? fin : null,
+    };
   }
 
-  /**
-   * Un serveur. Non-membre : aperçu (sans salons ni membres) pour un serveur
-   * public, 404 pour un serveur privé (son existence n'est pas révélée).
-   */
   async obtenir(id: string, acteur: Acteur): Promise<ServeurResponse> {
     const serveur = await this.prisma.server.findUnique({
       where: { id },
@@ -142,11 +135,6 @@ export class ServersService {
     return this.versReponse(serveur, role);
   }
 
-  /**
-   * Membres d'un serveur, par pages : le propriétaire en tête, puis les
-   * modérateurs, puis les membres, par ancienneté. Avec `ids`, seulement ces
-   * utilisateurs (sans pagination). Réservé aux membres.
-   */
   async listerMembres(
     id: string,
     acteur: Acteur,
@@ -184,8 +172,6 @@ export class ServersService {
 
     const decalage = options.decalage ?? 0;
     const limite = options.limite ?? LIMITE_MEMBRES_DEFAUT;
-    // Le propriétaire est à part (tête de la première page) : son rôle en
-    // base ne le distingue pas des autres.
     const proprietaire =
       serveur.ownerId === null
         ? null
@@ -196,16 +182,16 @@ export class ServersService {
           });
     const autres = { serverId: id, userId: { not: serveur.ownerId ?? '' } };
     const enTete = proprietaire ? 1 : 0;
-    const [total, page] = await Promise.all([
-      this.prisma.serverMember.count({ where: autres }),
-      this.prisma.serverMember.findMany({
-        where: autres,
-        // 'moderateur' > 'membre' : les modérateurs d'abord.
-        orderBy: [{ role: 'desc' }, { joinedAt: 'asc' }, { userId: 'asc' }],
-        skip: Math.max(decalage - enTete, 0),
-        take: decalage === 0 ? limite - enTete : limite,
-      }),
-    ]);
+    const total = await this.prisma.serverMember.count({ where: autres });
+    if (decalage > 0 && decalage >= total + enTete) {
+      return { membres: [], total: total + enTete, suivant: null };
+    }
+    const page = await this.prisma.serverMember.findMany({
+      where: autres,
+      orderBy: [{ role: 'desc' }, { joinedAt: 'asc' }, { userId: 'asc' }],
+      skip: Math.max(decalage - enTete, 0),
+      take: decalage === 0 ? limite - enTete : limite,
+    });
     const membres = [
       ...(decalage === 0 && proprietaire ? [proprietaire] : []),
       ...page,
@@ -218,7 +204,6 @@ export class ServersService {
     };
   }
 
-  /** Tous les serveurs, par pages (panneau d'administration). */
   async listerPourAdmin(
     acteur: Acteur,
     options: { decalage?: number; limite?: number } = {},
@@ -226,15 +211,16 @@ export class ServersService {
     this.exigerAdmin(acteur);
     const decalage = options.decalage ?? 0;
     const limite = options.limite ?? LIMITE_MEMBRES_DEFAUT;
-    const [total, serveurs] = await Promise.all([
-      this.prisma.server.count(),
-      this.prisma.server.findMany({
-        include: { _count: { select: { members: true } } },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        skip: decalage,
-        take: limite,
-      }),
-    ]);
+    const total = await this.prisma.server.count();
+    if (decalage > 0 && decalage >= total) {
+      return { serveurs: [], total, suivant: null };
+    }
+    const serveurs = await this.prisma.server.findMany({
+      include: { _count: { select: { members: true } } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      skip: decalage,
+      take: limite,
+    });
     const fin = decalage + serveurs.length;
     return {
       serveurs: serveurs.map((serveur) => this.versResume(serveur)),
@@ -243,9 +229,6 @@ export class ServersService {
     };
   }
 
-  // --- Création / modification ----------------------------------------------
-
-  /** Tout utilisateur peut créer un serveur ; il en devient propriétaire. */
   async creer(dto: CreateServerDto, acteur: Acteur): Promise<ServeurResponse> {
     const possedes = await this.prisma.server.count({
       where: { ownerId: acteur.id },
@@ -294,7 +277,6 @@ export class ServersService {
       data: {
         ...(dto.nom !== undefined ? { name: dto.nom } : {}),
         ...(dto.public !== undefined ? { isPublic: dto.public } : {}),
-        // Chaîne vide = retirer l'icône.
         ...(dto.icone !== undefined ? { icon: dto.icone || null } : {}),
       },
       include: serveurInclude,
@@ -319,9 +301,6 @@ export class ServersService {
     this.evenements.salonsSupprimes(serveur.channels.map((salon) => salon.id));
   }
 
-  // --- Appartenance ------------------------------------------------------------
-
-  /** Rejoindre : libre pour un serveur public, sur invitation sinon. */
   async rejoindre(id: string, acteur: Acteur): Promise<ServeurResponse> {
     const serveur = await this.chargerServeur(id, [acteur.id]);
     if (serveur.members.some((membre) => membre.userId === acteur.id)) {
@@ -332,13 +311,9 @@ export class ServersService {
       (invitation) => invitation.userId === acteur.id,
     );
     if (!serveur.isPublic && !invite) {
-      // Même réponse qu'un serveur inexistant : pas de fuite d'existence.
       throw new NotFoundException(`Serveur ${id} non trouvé`);
     }
 
-    // skipDuplicates : deux requêtes simultanées (double clic) passent toutes
-    // deux la vérification ci-dessus ; la seconde ne doit pas échouer en 500
-    // sur la contrainte d'unicité, ni prévenir les membres une deuxième fois.
     const [{ count }] = await this.prisma.$transaction([
       this.prisma.serverMember.createMany({
         data: [{ serverId: id, userId: acteur.id }],
@@ -380,14 +355,15 @@ export class ServersService {
     });
   }
 
-  /** Expulser : modérateur minimum, et strictement au-dessus de la cible. */
   async expulser(
     id: string,
     utilisateurId: string,
     acteur: Acteur,
+    nouveauProprietaireId?: string,
   ): Promise<ServeurResponse> {
     const { serveur, role } = await this.contexteVisible(id, acteur, [
       utilisateurId,
+      ...(nouveauProprietaireId ? [nouveauProprietaireId] : []),
     ]);
     this.refuserSiParDefaut(
       serveur,
@@ -403,11 +379,17 @@ export class ServersService {
       'Rôle insuffisant pour expulser ce membre',
     );
 
-    await this.prisma.serverMember.delete({
-      where: { serverId_userId: { serverId: id, userId: utilisateurId } },
-    });
-    // L'expulsé fait partie des destinataires (membres d'avant l'expulsion) :
-    // son app ferme le serveur aussitôt.
+    if (serveur.ownerId === utilisateurId) {
+      await this.transfererPuisExpulser(
+        serveur,
+        utilisateurId,
+        nouveauProprietaireId,
+      );
+    } else {
+      await this.prisma.serverMember.delete({
+        where: { serverId_userId: { serverId: id, userId: utilisateurId } },
+      });
+    }
     this.evenements.notifier(id, 'expulse', {
       destinataires: this.idsMembres(serveur),
       cibleId: utilisateurId,
@@ -415,7 +397,36 @@ export class ServersService {
     return this.obtenir(id, acteur);
   }
 
-  /** Nommer ou retirer un modérateur : propriétaire ou admin. */
+  private async transfererPuisExpulser(
+    serveur: ServeurComplet,
+    ancienId: string,
+    nouveauId: string | undefined,
+  ): Promise<void> {
+    if (!nouveauId || nouveauId === ancienId) {
+      throw new BadRequestException(
+        'Choisissez un autre membre comme nouveau propriétaire',
+      );
+    }
+    this.membreOuErreur(serveur, nouveauId);
+    const possedes = await this.prisma.server.count({
+      where: { ownerId: nouveauId },
+    });
+    if (possedes >= MAX_SERVEURS_POSSEDES) {
+      throw new BadRequestException(
+        `Limite atteinte : ce membre possède déjà ${MAX_SERVEURS_POSSEDES} serveurs`,
+      );
+    }
+    await this.prisma.$transaction([
+      this.prisma.server.update({
+        where: { id: serveur.id },
+        data: { ownerId: nouveauId },
+      }),
+      this.prisma.serverMember.delete({
+        where: { serverId_userId: { serverId: serveur.id, userId: ancienId } },
+      }),
+    ]);
+  }
+
   async changerRole(
     id: string,
     utilisateurId: string,
@@ -442,10 +453,6 @@ export class ServersService {
     return this.obtenir(id, acteur);
   }
 
-  // --- Invitations ------------------------------------------------------------
-
-  /** Modérateur minimum (propriétaire, admin) ; jamais dans le serveur par
-   * défaut. Idempotent. */
   async inviter(
     id: string,
     utilisateurId: string,
@@ -479,8 +486,6 @@ export class ServersService {
       await this.prisma.serverInvitation.create({
         data: { serverId: id, userId: utilisateurId, invitedBy: acteur.id },
       });
-      // L'invité (compteur d'invitations) et les membres (invitations en
-      // attente, visibles des modérateurs).
       this.evenements.notifier(id, 'invitation', {
         destinataires: this.idsMembres(serveur),
         extras: [utilisateurId],
@@ -510,10 +515,6 @@ export class ServersService {
     acteur: Acteur,
   ): Promise<ServeurResponse> {
     await this.invitationOuErreur(id, acteur);
-    // deleteMany plutôt que delete : deux acceptations simultanées (double
-    // clic) passent toutes deux la vérification ci-dessus ; la seconde ne
-    // doit pas échouer en 500 (P2025), ni prévenir les membres une seconde
-    // fois.
     const [{ count }] = await this.prisma.$transaction([
       this.prisma.serverInvitation.deleteMany({
         where: { serverId: id, userId: acteur.id },
@@ -525,7 +526,6 @@ export class ServersService {
       }),
     ]);
     if (count > 0) {
-      // Destinataires par défaut : membres actuels, nouveau membre compris.
       this.evenements.notifier(id, 'membres', { cibleId: acteur.id });
     }
     return this.obtenir(id, acteur);
@@ -533,24 +533,14 @@ export class ServersService {
 
   async refuserInvitation(id: string, acteur: Acteur): Promise<void> {
     await this.invitationOuErreur(id, acteur);
-    // Même raison que dans accepterInvitation.
     const { count } = await this.prisma.serverInvitation.deleteMany({
       where: { serverId: id, userId: acteur.id },
     });
     if (count > 0) {
-      // Les modérateurs voient les invitations en attente.
       this.evenements.notifier(id, 'membres', { cibleId: acteur.id });
     }
   }
 
-  // --- Compte supprimé -----------------------------------------------------------
-
-  /**
-   * Compte supprimé dans Authentification (route interne) : ses serveurs
-   * sont supprimés avec leurs salons (et, via Message-Service, leurs
-   * messages), il quitte les autres, ses invitations reçues disparaissent.
-   * Idempotent : un second appel ne trouve plus rien.
-   */
   async supprimerUtilisateur(utilisateurId: string): Promise<{
     serveursSupprimes: number;
     serveursQuittes: number;
@@ -591,9 +581,6 @@ export class ServersService {
     this.evenements.salonsSupprimes(
       possedes.flatMap((serveur) => serveur.channels.map((salon) => salon.id)),
     );
-    // Membres restants (nombre de membres) et modérateurs (invitations en
-    // attente). Pas pour le serveur par défaut : une arrivée n'y prévient
-    // personne, un départ non plus.
     const idsPossedes = new Set(possedes.map((serveur) => serveur.id));
     const quittes = adhesions.filter(
       (adhesion) => !idsPossedes.has(adhesion.serverId),
@@ -616,13 +603,6 @@ export class ServersService {
     };
   }
 
-  // --- Outils partagés (aussi utilisés par ChannelsService) ---------------------
-
-  /**
-   * Serveur + rôle effectif de l'appelant. 404 si le serveur n'existe pas ou
-   * s'il est privé et que l'appelant n'en est pas membre. `cibles` : autres
-   * membres dont la ligne est utile (voir chargerServeur).
-   */
   async contexteVisible(
     id: string,
     acteur: Acteur,
@@ -658,12 +638,6 @@ export class ServersService {
     this.exiger(acteur.role === 'admin', 'Action réservée aux administrateurs');
   }
 
-  /**
-   * Serveur complet. Pour le serveur par défaut, dont tout le monde est
-   * membre, seules les lignes de `utilisateursUtiles` sont chargées : ses
-   * événements partent à tous sans liste (voir EvenementsService), la liste
-   * complète ne sert donc jamais et coûterait une ligne par compte.
-   */
   private async chargerServeur(
     id: string,
     utilisateursUtiles: string[],
